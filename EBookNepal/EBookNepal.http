@@ -1,0 +1,6 @@
+@EBookNepal_HostAddress = http://localhost:5094
+
+GET {{EBookNepal_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
