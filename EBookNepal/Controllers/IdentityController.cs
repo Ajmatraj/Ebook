@@ -1,13 +1,13 @@
-﻿using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc;
+﻿using EBookNepal.DTOS;
 using EBookNepal.Entities;
-using EBookNepal.DTOS;
-using System.Security.Claims;
-using System.IdentityModel.Tokens.Jwt;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
-using Microsoft.Extensions.Configuration;
+using EBookNepal.Services;
 using EBookNepal.Services.Interfaces;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 namespace EBookNepal.Controllers
 {
@@ -21,7 +21,7 @@ namespace EBookNepal.Controllers
         private readonly IConfiguration _configuration;
         private readonly ILogger<IdentityApiController> _logger;
         private readonly IEmailServices _emailService;
-        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly ImageServices _imageService;
 
         public IdentityApiController(
             UserManager<User> userManager,
@@ -30,7 +30,7 @@ namespace EBookNepal.Controllers
             IConfiguration configuration,
             ILogger<IdentityApiController> logger,
             IEmailServices emailService,
-            IHttpContextAccessor httpContextAccessor)
+            ImageServices imageService)
         {
             _userManager = userManager;
             _signInManager = signInManager;
@@ -38,22 +38,17 @@ namespace EBookNepal.Controllers
             _configuration = configuration;
             _emailService = emailService;
             _logger = logger;
-            _httpContextAccessor = httpContextAccessor;
+            _imageService = imageService;
         }
+
+        // ================= REGISTER =================
 
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromForm] RegisterDTO registerDTO)
         {
-            _logger.LogInformation("Starting user registration process.");
-
-            // Validate the model state
             if (!ModelState.IsValid)
-            {
-                _logger.LogWarning("Model state is invalid.");
                 return BadRequest(ModelState);
-            }
 
-            // Create a new user object
             var user = new User
             {
                 Id = Guid.NewGuid().ToString(),
@@ -65,162 +60,121 @@ namespace EBookNepal.Controllers
                 EmailConfirmed = false
             };
 
-            // Handle profile image if provided (Cloudinary integration)
-            if (registerDTO.ProfileImage != null && registerDTO.ProfileImage.Length > 0)
+            // Upload profile image
+            if (registerDTO.ProfileImage != null)
             {
-                // Get the image service from DI
-                var imageService = HttpContext.RequestServices.GetService(typeof(EBookNepal.Services.ImageServices)) as EBookNepal.Services.ImageServices;
-                var uploadResult = await imageService.UploadPhotoAsync(registerDTO.ProfileImage);
-                var imageUrl = uploadResult.SecureUrl?.ToString();
-
-                user.ProfileImageUrl = imageUrl;
+                var upload = await _imageService.UploadPhotoAsync(registerDTO.ProfileImage);
+                user.ProfileImageUrl = upload.SecureUrl?.ToString();
             }
 
-            // Create the user in the database
             var result = await _userManager.CreateAsync(user, registerDTO.Password);
-            if (!result.Succeeded)
-            {
-                foreach (var error in result.Errors)
-                {
-                    _logger.LogWarning($"Error creating user: {error.Description}");
-                    ModelState.AddModelError(string.Empty, error.Description);
-                }
-                return BadRequest(ModelState);
-            }
 
-            // Assign the default "User" role
+            if (!result.Succeeded)
+                return BadRequest(result.Errors);
+
+            // Assign default role
             if (!await _roleManager.RoleExistsAsync("User"))
-            {
                 await _roleManager.CreateAsync(new IdentityRole("User"));
-            }
+
             await _userManager.AddToRoleAsync(user, "User");
 
-            // Generate email confirmation token
+            // Email confirmation
             var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-            var confirmationLink = Url.Action("ConfirmEmail", "Identity", new { userId = user.Id, token = token }, Request.Scheme);
 
-            try
-            {
-                // Send confirmation email
-                await _emailService.SendEmailAsync(user.Email, "Confirm your email", $"Please confirm your email by clicking <a href='{confirmationLink}'>here</a>.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error sending confirmation email: {ex.Message}");
-                return StatusCode(500, "An error occurred while sending the confirmation email.");
-            }
+            var confirmationLink = Url.Action(
+                nameof(ConfirmEmail),
+                "IdentityApi",
+                new { userId = user.Id, token },
+                Request.Scheme);
 
-            _logger.LogInformation("User created successfully.");
-            return Ok(new { Message = "Registration successful! Please confirm your email." });
+            await _emailService.SendEmailAsync(
+                user.Email!,
+                "Confirm your email",
+                $"Click <a href='{confirmationLink}'>here</a> to confirm.");
+
+            return Ok(new
+            {
+                message = "Registration successful. Please verify your email."
+            });
         }
+
+        // ================= CONFIRM EMAIL =================
 
         [HttpGet("confirm-email")]
         public async Task<IActionResult> ConfirmEmail(string userId, string token)
         {
-            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(token))
-            {
-                _logger.LogWarning("Invalid email confirmation request. UserId or Token is null or empty.");
-                return BadRequest("Invalid email confirmation request.");
-            }
-
             var user = await _userManager.FindByIdAsync(userId);
             if (user == null)
-            {
-                _logger.LogWarning("User not found. UserId: {UserId}", userId);
-                return NotFound("User not found.");
-            }
+                return NotFound();
 
-            _logger.LogInformation("Attempting to confirm email for UserId: {UserId} with Token: {Token}", userId, token);
+            var decodedToken = Uri.UnescapeDataString(token);
 
-            try
-            {
-                // Decode the token
-                var decodedToken = Uri.UnescapeDataString(token);
+            var result = await _userManager.ConfirmEmailAsync(user, decodedToken);
 
-                // Confirm the email
-                var result = await _userManager.ConfirmEmailAsync(user, decodedToken);
-                if (result.Succeeded)
-                {
-                    _logger.LogInformation("Email confirmed successfully for UserId: {UserId}", userId);
-                    return Ok("Email confirmed successfully.");
-                }
+            if (!result.Succeeded)
+                return BadRequest(result.Errors);
 
-                _logger.LogWarning("Email confirmation failed for UserId: {UserId}. Errors: {Errors}", userId, result.Errors);
-                return BadRequest("Email confirmation failed.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error confirming email for UserId: {userId}. Exception: {ex.Message}");
-                return StatusCode(500, "An error occurred while confirming the email.");
-            }
+            return Ok("Email confirmed successfully.");
         }
+
+        // ================= LOGIN =================
 
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDTO loginDTO)
         {
-            _logger.LogInformation("Starting user login process.");
-
-            if (!ModelState.IsValid)
-            {
-                _logger.LogWarning("Model state is invalid.");
-                return BadRequest(ModelState);
-            }
-
             var user = await _userManager.FindByEmailAsync(loginDTO.Email);
 
-            if (user != null)
+            if (user == null)
+                return Unauthorized("Invalid credentials");
+
+            if (!user.EmailConfirmed)
+                return BadRequest("Please verify your email first.");
+
+            var result = await _signInManager.CheckPasswordSignInAsync(user, loginDTO.Password, false);
+
+            if (!result.Succeeded)
+                return Unauthorized("Invalid credentials");
+
+            var roles = await _userManager.GetRolesAsync(user);
+
+            var claims = new List<Claim>
             {
-                // Check if the user's email is confirmed
-                if (!user.EmailConfirmed)
-                {
-                    _logger.LogWarning("Login attempt failed. Email not confirmed for UserId: {UserId}", user.Id);
-                    return BadRequest(new { Message = "Please verify your email to log in." });
-                }
+                new Claim(ClaimTypes.NameIdentifier, user.Id),
+                new Claim(JwtRegisteredClaimNames.Email, user.Email!),
+                new Claim(JwtRegisteredClaimNames.Sub, user.Name!)
+            };
 
-                var userRoles = await _userManager.GetRolesAsync(user);
+            claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
 
-                var authClaims = new List<Claim>
-                {
-                    new Claim(JwtRegisteredClaimNames.Sub, user.Name!),
-                    new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                };
+            var key = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
 
-                authClaims.AddRange(userRoles.Select(role => new Claim(ClaimTypes.Role, role)));
+            var token = new JwtSecurityToken(
+                issuer: _configuration["Jwt:Issuer"],
+                expires: DateTime.UtcNow.AddMinutes(
+                    double.Parse(_configuration["Jwt:ExpiryMinutes"]!)),
+                claims: claims,
+                signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
 
-                var token = new JwtSecurityToken(
-                    issuer: _configuration["Jwt:Issuer"],
-                    expires: DateTime.Now.AddMinutes(double.Parse(_configuration["Jwt:ExpiryMinutes"]!)),
-                    claims: authClaims,
-                    signingCredentials: new SigningCredentials(
-                        new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!)),
-                        SecurityAlgorithms.HmacSha256));
-
-                _logger.LogInformation("User logged in successfully.");
-                return Ok(new
-                {
-                    token = new JwtSecurityTokenHandler().WriteToken(token),
-                    userId = user.Id,
-                    roles = userRoles
-                });
-            }
-
-            _logger.LogWarning("Invalid login attempt.");
-            return Unauthorized();
+            return Ok(new
+            {
+                token = new JwtSecurityTokenHandler().WriteToken(token),
+                userId = user.Id,
+                roles
+            });
         }
+
+        // ================= EMAIL TEST =================
 
         [HttpGet("test-email")]
         public async Task<IActionResult> TestEmail()
         {
-            try
-            {
-                await _emailService.SendEmailAsync("raajajmat252@gmail.com", "Test Email", "This is a test email.");
-                return Ok("Email sent successfully.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Error sending test email: {ex.Message}");
-                return StatusCode(500, "An error occurred while sending the test email.");
-            }
+            await _emailService.SendEmailAsync(
+                "test@example.com",
+                "Test Email",
+                "Email service working.");
+
+            return Ok("Email sent");
         }
     }
 }

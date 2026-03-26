@@ -1,15 +1,31 @@
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace EBookNepal.Entities
 {
     public class Order
     {
-        public string OrderId { get; set; }
-        public string UserId { get; set; }
-        public decimal TotalAmount { get; set; }
-        public DateTime CheckedOutTime { get; set; }
-        public OrderStatus OrderStatus { get; set; } = OrderStatus.Pending;
-        public string ClaimCode { get; set; }
+        [Key]
+        public string OrderId { get; set; } = Guid.NewGuid().ToString();
 
-        // Navigation property
-        public virtual ICollection<OrderItem> OrderItems { get; set; }
+        [Required]
+        public string UserId { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal TotalAmount { get; set; }
+
+        public DateTime CheckedOutTime { get; set; } = DateTime.UtcNow;
+
+        public OrderStatus OrderStatus { get; set; } = OrderStatus.Pending;
+
+        public string? ClaimCode { get; set; }
+
+        // ========================
+        // NAVIGATION
+        // ========================
+        [ForeignKey("UserId")]
+        public virtual User User { get; set; }
+
+        public virtual ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();
     }
 }

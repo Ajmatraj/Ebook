@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EBookNepal.Entities
 {
@@ -6,13 +7,27 @@ namespace EBookNepal.Entities
     {
         [Key]
         public string ReviewId { get; set; } = Guid.NewGuid().ToString();
-        public string? BookId { get; set; }
-        public string? UserId { get; set; }
+
+        [Required]
+        public string BookId { get; set; }
+
+        [Required]
+        public string UserId { get; set; }
+
         public string? ReviewText { get; set; }
-        public int? Rating { get; set; } // Rating out of 5
+
+        [Range(1, 5)]
+        public int Rating { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation properties
-        public Book Book { get; set; }
+        // ========================
+        // NAVIGATION PROPERTIES
+        // ========================
+        [ForeignKey("BookId")]
+        public virtual Book Book { get; set; }
+
+        [ForeignKey("UserId")]
+        public virtual User User { get; set; }
     }
 }

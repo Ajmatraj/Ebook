@@ -7,12 +7,27 @@ namespace EBookNepal.Entities
     {
         [Key]
         public string CartItemId { get; set; } = Guid.NewGuid().ToString();
-        public string? BookId { get; set; }
-        [ForeignKey("BookId")]
-        public Book? Book { get; set; }
-        public decimal? BookPrice { get; set; }
-        public string? UserId { get; set; }
+
+        [Required]
+        public string BookId { get; set; }
+
+        [Required]
+        public string UserId { get; set; }
+
         public int Quantity { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal BookPrice { get; set; }
+
         public DateTime AddedDate { get; set; } = DateTime.UtcNow;
+
+        // ========================
+        // NAVIGATION
+        // ========================
+        [ForeignKey("BookId")]
+        public virtual Book Book { get; set; }
+
+        [ForeignKey("UserId")]
+        public virtual User User { get; set; }
     }
 }

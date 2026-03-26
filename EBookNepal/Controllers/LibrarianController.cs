@@ -36,10 +36,14 @@ namespace EBookNepal.Controllers
                 Language = book.Language,
                 ISBN = book.ISBN,
                 Publisher = book.Publisher,
-                PublicationDate = book.PublicationDate,
-                Price = (book.OfferPrice.HasValue && book.OfferStartDate <= DateTime.UtcNow && book.OfferEndDate >= DateTime.UtcNow)
-                    ? book.OfferPrice.Value
-                    : book.Price,
+                PublicationDate = book.PublicationDate.HasValue
+                    ? book.PublicationDate.Value.ToString("yyyy-MM-dd")
+                    : null,
+                Price = (book.OfferPrice.HasValue &&
+                         book.OfferStartDate <= DateTime.UtcNow &&
+                         book.OfferEndDate >= DateTime.UtcNow)
+                        ? book.OfferPrice.Value
+                        : book.Price,
                 CoverImagePath = book.CoverImageUrl
             }).ToList();
         }

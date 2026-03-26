@@ -65,15 +65,12 @@ namespace EBookNepal.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("CreatedBy")
-                        .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("CreatedDate")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Description")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Genre")
@@ -81,8 +78,10 @@ namespace EBookNepal.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("ISBN")
-                        .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Language")
                         .IsRequired()
@@ -92,19 +91,21 @@ namespace EBookNepal.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal?>("OfferPrice")
-                        .HasColumnType("numeric");
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime?>("OfferStartDate")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("Price")
-                        .HasColumnType("numeric");
+                        .HasColumnType("decimal(18,2)");
 
-                    b.Property<string>("PublicationDate")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<DateTime?>("PublicationDate")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Publisher")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SellerId")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -116,14 +117,14 @@ namespace EBookNepal.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("UpdatedBy")
-                        .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("UpdatedDate")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<DateTime>("UpdatedDate")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("BookId");
+
+                    b.HasIndex("SellerId");
 
                     b.ToTable("Books");
                 });
@@ -134,23 +135,27 @@ namespace EBookNepal.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("BookId")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int?>("Rating")
+                    b.Property<int>("Rating")
                         .HasColumnType("integer");
 
                     b.Property<string>("ReviewText")
                         .HasColumnType("text");
 
                     b.Property<string>("UserId")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("ReviewId");
 
                     b.HasIndex("BookId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("BookReviews");
                 });
@@ -164,20 +169,24 @@ namespace EBookNepal.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("BookId")
+                        .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<decimal?>("BookPrice")
-                        .HasColumnType("numeric");
+                    b.Property<decimal>("BookPrice")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
 
                     b.Property<string>("UserId")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("CartItemId");
 
                     b.HasIndex("BookId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("CartItems");
                 });
@@ -255,20 +264,21 @@ namespace EBookNepal.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ClaimCode")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<int>("OrderStatus")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("TotalAmount")
-                        .HasColumnType("numeric");
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("UserId")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("OrderId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("Orders");
                 });
@@ -283,7 +293,7 @@ namespace EBookNepal.Migrations
                         .HasColumnType("text");
 
                     b.Property<decimal>("BookPrice")
-                        .HasColumnType("numeric");
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("BookTitle")
                         .IsRequired()
@@ -297,9 +307,11 @@ namespace EBookNepal.Migrations
                         .HasColumnType("integer");
 
                     b.Property<decimal>("TotalPrice")
-                        .HasColumnType("numeric");
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("OrderItemId");
+
+                    b.HasIndex("BookId");
 
                     b.HasIndex("OrderId");
 
@@ -342,6 +354,9 @@ namespace EBookNepal.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsSeller")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("boolean");
 
@@ -368,9 +383,6 @@ namespace EBookNepal.Migrations
 
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("boolean");
-
-                    b.Property<string>("ProfileImageImageId")
-                        .HasColumnType("text");
 
                     b.Property<string>("ProfileImageUrl")
                         .HasColumnType("text");
@@ -399,8 +411,6 @@ namespace EBookNepal.Migrations
                     b.HasIndex("NormalizedUserName")
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex");
-
-                    b.HasIndex("ProfileImageImageId");
 
                     b.ToTable("AspNetUsers", (string)null);
                 });
@@ -562,13 +572,34 @@ namespace EBookNepal.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("EBookNepal.Entities.Book", b =>
+                {
+                    b.HasOne("EBookNepal.Entities.User", "Seller")
+                        .WithMany("Books")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Seller");
+                });
+
             modelBuilder.Entity("EBookNepal.Entities.BookReview", b =>
                 {
                     b.HasOne("EBookNepal.Entities.Book", "Book")
+                        .WithMany("Reviews")
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EBookNepal.Entities.User", "User")
                         .WithMany()
-                        .HasForeignKey("BookId");
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Book");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EBookNepal.Entities.Cart", b =>
@@ -576,9 +607,18 @@ namespace EBookNepal.Migrations
                     b.HasOne("EBookNepal.Entities.Book", "Book")
                         .WithMany()
                         .HasForeignKey("BookId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("EBookNepal.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Book");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("EBookNepal.Entities.Feedback", b =>
@@ -592,24 +632,34 @@ namespace EBookNepal.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("EBookNepal.Entities.Order", b =>
+                {
+                    b.HasOne("EBookNepal.Entities.User", "User")
+                        .WithMany("Orders")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("EBookNepal.Entities.OrderItem", b =>
                 {
+                    b.HasOne("EBookNepal.Entities.Book", "Book")
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("EBookNepal.Entities.Order", "Order")
                         .WithMany("OrderItems")
                         .HasForeignKey("OrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("Book");
+
                     b.Navigation("Order");
-                });
-
-            modelBuilder.Entity("EBookNepal.Entities.User", b =>
-                {
-                    b.HasOne("EBookNepal.Entities.Image", "ProfileImage")
-                        .WithMany()
-                        .HasForeignKey("ProfileImageImageId");
-
-                    b.Navigation("ProfileImage");
                 });
 
             modelBuilder.Entity("EBookNepal.Entities.Wishlist", b =>
@@ -682,9 +732,21 @@ namespace EBookNepal.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("EBookNepal.Entities.Book", b =>
+                {
+                    b.Navigation("Reviews");
+                });
+
             modelBuilder.Entity("EBookNepal.Entities.Order", b =>
                 {
                     b.Navigation("OrderItems");
+                });
+
+            modelBuilder.Entity("EBookNepal.Entities.User", b =>
+                {
+                    b.Navigation("Books");
+
+                    b.Navigation("Orders");
                 });
 #pragma warning restore 612, 618
         }
