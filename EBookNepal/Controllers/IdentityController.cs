@@ -21,7 +21,7 @@ namespace EBookNepal.Controllers
         private readonly IConfiguration _configuration;
         private readonly ILogger<IdentityApiController> _logger;
         private readonly IEmailServices _emailService;
-        private readonly ImageServices _imageService;
+        private readonly IImageServices _imageService;
 
         public IdentityApiController(
             UserManager<User> userManager,
@@ -30,7 +30,7 @@ namespace EBookNepal.Controllers
             IConfiguration configuration,
             ILogger<IdentityApiController> logger,
             IEmailServices emailService,
-            ImageServices imageService)
+           IImageServices imageService)
         {
             _userManager = userManager;
             _signInManager = signInManager;
@@ -41,8 +41,9 @@ namespace EBookNepal.Controllers
             _imageService = imageService;
         }
 
-        // ================= REGISTER =================
-
+        // ============================================================
+        // REGISTER
+        // ============================================================
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromForm] RegisterDTO registerDTO)
         {
@@ -72,13 +73,13 @@ namespace EBookNepal.Controllers
             if (!result.Succeeded)
                 return BadRequest(result.Errors);
 
-            // Assign default role
+            // Ensure default role exists
             if (!await _roleManager.RoleExistsAsync("User"))
                 await _roleManager.CreateAsync(new IdentityRole("User"));
 
             await _userManager.AddToRoleAsync(user, "User");
 
-            // Email confirmation
+            // Generate email confirmation token
             var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
 
             var confirmationLink = Url.Action(
@@ -90,7 +91,7 @@ namespace EBookNepal.Controllers
             await _emailService.SendEmailAsync(
                 user.Email!,
                 "Confirm your email",
-                $"Click <a href='{confirmationLink}'>here</a> to confirm.");
+                $"Click <a href='{confirmationLink}'>here</a> to confirm your email.");
 
             return Ok(new
             {
@@ -98,11 +99,15 @@ namespace EBookNepal.Controllers
             });
         }
 
-        // ================= CONFIRM EMAIL =================
-
+        // ============================================================
+        // CONFIRM EMAIL
+        // ============================================================
         [HttpGet("confirm-email")]
         public async Task<IActionResult> ConfirmEmail(string userId, string token)
         {
+            if (userId == null || token == null)
+                return BadRequest();
+
             var user = await _userManager.FindByIdAsync(userId);
             if (user == null)
                 return NotFound();
@@ -117,11 +122,15 @@ namespace EBookNepal.Controllers
             return Ok("Email confirmed successfully.");
         }
 
-        // ================= LOGIN =================
-
+        // ============================================================
+        // LOGIN
+        // ============================================================
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDTO loginDTO)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             var user = await _userManager.FindByEmailAsync(loginDTO.Email);
 
             if (user == null)
@@ -130,42 +139,53 @@ namespace EBookNepal.Controllers
             if (!user.EmailConfirmed)
                 return BadRequest("Please verify your email first.");
 
-            var result = await _signInManager.CheckPasswordSignInAsync(user, loginDTO.Password, false);
+            var passwordValid = await _signInManager.CheckPasswordSignInAsync(
+                user, loginDTO.Password, false);
 
-            if (!result.Succeeded)
+            if (!passwordValid.Succeeded)
                 return Unauthorized("Invalid credentials");
 
             var roles = await _userManager.GetRolesAsync(user);
 
+            // ================= CLAIMS =================
             var claims = new List<Claim>
             {
                 new Claim(ClaimTypes.NameIdentifier, user.Id),
-                new Claim(JwtRegisteredClaimNames.Email, user.Email!),
-                new Claim(JwtRegisteredClaimNames.Sub, user.Name!)
+                new Claim(ClaimTypes.Email, user.Email!),
+                new Claim(JwtRegisteredClaimNames.Sub, user.UserName!)
             };
 
-            claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+            // Add role claims
+            foreach (var role in roles)
+            {
+                claims.Add(new Claim(ClaimTypes.Role, role));
+            }
 
+            // ================= JWT =================
             var key = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]!));
 
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:Issuer"],
+                audience: _configuration["Jwt:Audience"],
+                claims: claims,
                 expires: DateTime.UtcNow.AddMinutes(
                     double.Parse(_configuration["Jwt:ExpiryMinutes"]!)),
-                claims: claims,
-                signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+                signingCredentials: creds);
 
             return Ok(new
             {
                 token = new JwtSecurityTokenHandler().WriteToken(token),
                 userId = user.Id,
-                roles
+                roles = roles
             });
         }
 
-        // ================= EMAIL TEST =================
-
+        // ============================================================
+        // TEST EMAIL
+        // ============================================================
         [HttpGet("test-email")]
         public async Task<IActionResult> TestEmail()
         {

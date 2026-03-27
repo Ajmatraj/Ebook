@@ -2,6 +2,8 @@
 using EBookNepal.DTOS;
 using EBookNepal.Entities;
 using EBookNepal.Services.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,17 +17,20 @@ namespace EBookNepal.Controllers
         private readonly IWebHostEnvironment _webHostEnvironment;
         private readonly ILogger<BookController> _logger;
         private readonly ApplicationDbContext _context;
+        private readonly UserManager<User> _userManager;
 
         public BookController(
             IBookServices bookServices,
             IWebHostEnvironment webHostEnvironment,
             ILogger<BookController> logger,
-            ApplicationDbContext context)
+            ApplicationDbContext context,
+            UserManager<User> userManager)
         {
             _bookServices = bookServices;
             _webHostEnvironment = webHostEnvironment;
             _logger = logger;
             _context = context;
+            _userManager = userManager;
         }
 
         // ======================================================
@@ -47,6 +52,50 @@ namespace EBookNepal.Controllers
         }
 
         // ======================================================
+        // GET BOOKS BY SELLER ID
+        // ======================================================
+        [HttpGet("GetBooksBySeller")]
+        public IActionResult GetBooksBySeller([FromQuery] string sellerId)
+        {
+            if (string.IsNullOrWhiteSpace(sellerId))
+                return BadRequest("Seller ID is required.");
+
+            try
+            {
+                var books = _bookServices.GetBooksBySeller(sellerId);
+                return Ok(books);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving books for seller {SellerId}", sellerId);
+                return BadRequest(ex.Message);
+            }
+        }
+
+        // ======================================================
+        // GET MY BOOKS (authenticated seller's own books)
+        // ======================================================
+        [HttpGet("GetMyBooks")]
+        [Authorize]
+        public IActionResult GetMyBooks()
+        {
+            var userId = _userManager.GetUserId(User);
+            if (string.IsNullOrWhiteSpace(userId))
+                return Unauthorized("User not found.");
+
+            try
+            {
+                var books = _bookServices.GetBooksBySeller(userId);
+                return Ok(books);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving books for current user");
+                return BadRequest(ex.Message);
+            }
+        }
+
+        // ======================================================
         // GET BOOK BY ID
         // ======================================================
         [HttpGet("GetBookById")]
@@ -55,35 +104,15 @@ namespace EBookNepal.Controllers
             if (string.IsNullOrWhiteSpace(bookId))
                 return BadRequest("Book ID is required.");
 
-            var book = _context.Books
-                .Where(b => b.BookId == bookId)
-                .Select(b => new BookDTO
-                {
-                    BookId = b.BookId,
-                    Title = b.Title,
-                    Stock = b.Stock,
-                    Description = b.Description,
-                    Author = b.Author,
-                    Genre = b.Genre,
-                    Language = b.Language,
-                    ISBN = b.ISBN,
-                    Publisher = b.Publisher,
-                    PublicationDate = b.PublicationDate.HasValue
-                        ? b.PublicationDate.Value.ToString("yyyy-MM-dd")
-                        : null,
-                    Price = (b.OfferPrice.HasValue &&
-                             b.OfferStartDate <= DateTime.UtcNow &&
-                             b.OfferEndDate >= DateTime.UtcNow)
-                        ? b.OfferPrice.Value
-                        : b.Price,
-                    CoverImagePath = b.CoverImageUrl
-                })
-                .FirstOrDefault();
-
-            if (book == null)
-                return NotFound("Book not found.");
-
-            return Ok(book);
+            try
+            {
+                var book = _bookServices.GetBookById(bookId);
+                return Ok(book);
+            }
+            catch (Exception ex)
+            {
+                return NotFound(ex.Message);
+            }
         }
 
         // ======================================================
@@ -117,6 +146,7 @@ namespace EBookNepal.Controllers
         // ADD BOOK
         // ======================================================
         [HttpPost("AddBook")]
+        [Authorize]
         public async Task<IActionResult> AddBook([FromForm] AddBookDTO bookDto)
         {
             if (bookDto == null)
@@ -137,15 +167,23 @@ namespace EBookNepal.Controllers
                 }
             }
 
-            _bookServices.AddBook(bookDto, imageUrl);
-
-            return Ok("Book added successfully.");
+            try
+            {
+                _bookServices.AddBook(bookDto, imageUrl);
+                return Ok("Book added successfully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error adding book");
+                return BadRequest(ex.Message);
+            }
         }
 
         // ======================================================
         // UPDATE BOOK
         // ======================================================
         [HttpPost("UpdateBook")]
+        [Authorize]
         public async Task<IActionResult> UpdateBook([FromForm] UpdateBookDTO bookDto)
         {
             if (bookDto == null)
@@ -166,26 +204,63 @@ namespace EBookNepal.Controllers
                 }
             }
 
-            _bookServices.UpdateBook(bookDto, imageUrl);
+            try
+            {
+                _bookServices.UpdateBook(bookDto, imageUrl);
+                return Ok("Book updated successfully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating book");
+                return BadRequest(ex.Message);
+            }
+        }
 
-            return Ok("Book updated successfully.");
+        // ======================================================
+        // DELETE BOOK
+        // ======================================================
+        [HttpDelete("DeleteBook")]
+        [Authorize]
+        public IActionResult DeleteBook([FromQuery] string bookId)
+        {
+            if (string.IsNullOrWhiteSpace(bookId))
+                return BadRequest("Book ID is required.");
+
+            try
+            {
+                _bookServices.DeleteBook(bookId);
+                return Ok("Book deleted successfully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting book {BookId}", bookId);
+                return BadRequest(ex.Message);
+            }
         }
 
         // ======================================================
         // WISHLIST
         // ======================================================
         [HttpPost("AddToWishlist")]
+        [Authorize]
         public IActionResult AddToWishlist([FromQuery] string bookId)
         {
             if (string.IsNullOrWhiteSpace(bookId))
                 return BadRequest("Book ID is required.");
 
-            _bookServices.AddToWishlist(bookId);
-
-            return Ok("Book added to wishlist.");
+            try
+            {
+                _bookServices.AddToWishlist(bookId);
+                return Ok("Book added to wishlist.");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [HttpGet("GetWishlist")]
+        [Authorize]
         public IActionResult GetWishlist()
         {
             var wishlist = _bookServices.GetWishlist();
@@ -193,28 +268,89 @@ namespace EBookNepal.Controllers
         }
 
         [HttpDelete("RemoveFromWishlist")]
+        [Authorize]
         public IActionResult RemoveFromWishlist([FromQuery] string wishlistId)
         {
             if (string.IsNullOrWhiteSpace(wishlistId))
                 return BadRequest("Wishlist ID is required.");
 
-            _bookServices.RemoveFromWishlist(wishlistId);
+            try
+            {
+                _bookServices.RemoveFromWishlist(wishlistId);
+                return Ok("Removed from wishlist.");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
 
-            return Ok("Removed from wishlist.");
+        // ======================================================
+        // CART
+        // ======================================================
+        [HttpPost("AddToCart")]
+        [Authorize]
+        public IActionResult AddToCart([FromQuery] string bookId, [FromQuery] int quantity = 1)
+        {
+            if (string.IsNullOrWhiteSpace(bookId))
+                return BadRequest("Book ID is required.");
+
+            try
+            {
+                _bookServices.AddToCart(bookId, quantity);
+                return Ok("Book added to cart.");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpGet("GetCart")]
+        [Authorize]
+        public IActionResult GetCart()
+        {
+            var cart = _bookServices.GetCart();
+            return Ok(cart);
+        }
+
+        [HttpDelete("RemoveFromCart")]
+        [Authorize]
+        public IActionResult RemoveFromCart([FromQuery] string cartItemId)
+        {
+            if (string.IsNullOrWhiteSpace(cartItemId))
+                return BadRequest("Cart item ID is required.");
+
+            try
+            {
+                _bookServices.RemoveFromCart(cartItemId);
+                return Ok("Removed from cart.");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // ======================================================
         // OFFERS
         // ======================================================
         [HttpPost("SetOffer")]
+        [Authorize]
         public IActionResult SetOffer([FromBody] SetOfferDTO offerDto)
         {
             if (offerDto == null)
                 return BadRequest("Offer data is required.");
 
-            _bookServices.SetOffer(offerDto);
-
-            return Ok("Offer applied successfully.");
+            try
+            {
+                _bookServices.SetOffer(offerDto);
+                return Ok("Offer applied successfully.");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         // ======================================================
@@ -241,6 +377,7 @@ namespace EBookNepal.Controllers
         // ADD REVIEW
         // ======================================================
         [HttpPost("AddReview")]
+        [Authorize]
         public IActionResult AddReview([FromBody] AddReviewDTO reviewDto)
         {
             if (reviewDto == null ||

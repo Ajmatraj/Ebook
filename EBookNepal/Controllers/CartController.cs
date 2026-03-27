@@ -184,7 +184,7 @@ namespace EBookNepal.Controllers
                 decimal totalAmount = 0;
                 foreach (var cartItem in cartItems)
                 {
-                    decimal itemPrice = cartItem.Price;
+                    decimal itemPrice = cartItem.UnitPrice;
                     if (cartItem.Quantity > 5)
                     {
                         // Apply 5% discount for quantity > 5
@@ -224,7 +224,7 @@ namespace EBookNepal.Controllers
                         return BadRequest($"Book with ID {cartItem.BookId} not found.");
                     }
 
-                    decimal itemPrice = cartItem.Price;
+                    decimal itemPrice = cartItem.UnitPrice;
                     if (cartItem.Quantity > 5)
                     {
                         // Apply 5% discount for quantity > 5
@@ -267,7 +267,7 @@ namespace EBookNepal.Controllers
 
                 foreach (var cartItem in cartItems)
                 {
-                    decimal itemPrice = cartItem.Price;
+                    decimal itemPrice = cartItem.UnitPrice;
                     if (cartItem.Quantity > 5)
                     {
                         itemPrice *= 0.95m;

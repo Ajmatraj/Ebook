@@ -1,4 +1,4 @@
-using System.Security.Claims;
+using CloudinaryDotNet.Actions;
 using EBookNepal.DTOS;
 using EBookNepal.Entities;
 using EBookNepal.Services.Interfaces;
@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace EBookNepal.Controllers
 {
@@ -38,64 +39,57 @@ namespace EBookNepal.Controllers
         [HttpPut("update-profile/{userId}")]
         public async Task<IActionResult> UpdateProfile(
             string userId,
-            [FromForm] UpdateProfileDTO updateProfileDTO)
+            [FromForm] UpdateProfileDTO dto)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            if (string.IsNullOrEmpty(userId))
-                return BadRequest(new { Message = "User ID is required." });
-
             var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var callerRole = User.FindFirstValue(ClaimTypes.Role);
+
             if (callerId != userId && callerRole != "Admin")
                 return Forbid();
 
-            var user = await _userManager.Users
-                .FirstOrDefaultAsync(u => u.Id == userId);
-
+            var user = await _userManager.FindByIdAsync(userId);
             if (user == null)
                 return NotFound(new { Message = "User not found." });
 
-            user.Name = updateProfileDTO.Name;
-            user.Address = updateProfileDTO.Address;
-            user.ContactNo = updateProfileDTO.ContactNo;
+            user.Name = dto.Name;
+            user.Address = dto.Address;
+            user.ContactNo = dto.ContactNo;
             user.UpdatedDate = DateTime.UtcNow;
             user.UpdatedBy = callerId;
 
-            if (updateProfileDTO.ProfileImage != null &&
-                updateProfileDTO.ProfileImage.Length > 0)
+            if (dto.ProfileImage != null && dto.ProfileImage.Length > 0)
             {
-                // Delete old Cloudinary asset before uploading replacement
                 if (!string.IsNullOrEmpty(user.ProfileImageUrl))
                 {
-                    var oldPublicId = ExtractCloudinaryPublicId(user.ProfileImageUrl);
-                    if (!string.IsNullOrEmpty(oldPublicId))
-                        await _imageService.DeletePhotoAsync(oldPublicId);
+                    var oldId = ExtractCloudinaryPublicId(user.ProfileImageUrl);
+                    if (!string.IsNullOrEmpty(oldId))
+                        await _imageService.DeletePhotoAsync(oldId);
                 }
 
-                var uploadResult = await _imageService.UploadPhotoAsync(
-                    updateProfileDTO.ProfileImage);
-
-                user.ProfileImageUrl = uploadResult.SecureUrl?.ToString();
+                var upload = await _imageService.UploadPhotoAsync(dto.ProfileImage);
+                user.ProfileImageUrl = upload.SecureUrl?.ToString();
             }
 
             var result = await _userManager.UpdateAsync(user);
-
             if (!result.Succeeded)
-            {
-                foreach (var error in result.Errors)
-                    ModelState.AddModelError(string.Empty, error.Description);
+                return BadRequest(result.Errors);
 
-                return BadRequest(ModelState);
-            }
-
-            _logger.LogInformation("User {UserId} profile updated.", userId);
+            var roles = await _userManager.GetRolesAsync(user);
 
             return Ok(new
             {
                 Message = "Profile updated successfully.",
-                user.ProfileImageUrl
+                user.Id,
+                user.Name,
+                user.Email,
+                user.Address,
+                user.ContactNo,
+                user.ProfileImageUrl,
+                user.EmailConfirmed,
+                Roles = roles
             });
         }
 
@@ -107,20 +101,20 @@ namespace EBookNepal.Controllers
         [HttpGet("get-user/{userId}")]
         public async Task<IActionResult> GetUserById(string userId)
         {
-            if (string.IsNullOrEmpty(userId))
-                return BadRequest(new { Message = "User ID is required." });
-
             var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var callerRole = User.FindFirstValue(ClaimTypes.Role);
+
             if (callerId != userId && callerRole != "Admin")
                 return Forbid();
 
             var user = await _userManager.Users
                 .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == userId);
+                .FirstOrDefaultAsync(x => x.Id == userId);
 
             if (user == null)
                 return NotFound(new { Message = "User not found." });
+
+            var roles = await _userManager.GetRolesAsync(user);
 
             return Ok(new
             {
@@ -129,13 +123,16 @@ namespace EBookNepal.Controllers
                 user.Email,
                 user.Address,
                 user.ContactNo,
-                user.ProfileImageUrl,  // always this field
-                user.CreatedDate
+                user.ProfileImageUrl,
+                user.CreatedDate,
+                user.EmailConfirmed,
+                user.IsDeleted,
+                Roles = roles
             });
         }
 
         // ============================
-        // GET ALL USERS (Admin only)
+        // GET ALL USERS
         // ============================
 
         [Authorize(Roles = "Admin")]
@@ -150,39 +147,44 @@ namespace EBookNepal.Controllers
             if (!users.Any())
                 return NotFound(new { Message = "No users found." });
 
-            var userList = users.Select(user => new
-            {
-                user.Id,
-                user.Name,
-                user.Email,
-                user.Address,
-                user.ContactNo,
-                user.ProfileImageUrl,
-                user.CreatedDate
-            });
+            var list = new List<object>();
 
-            return Ok(userList);
+            foreach (var user in users)
+            {
+                var roles = await _userManager.GetRolesAsync(user);
+
+                list.Add(new
+                {
+                    user.Id,
+                    user.Name,
+                    user.Email,
+                    user.Address,
+                    user.ContactNo,
+                    user.ProfileImageUrl,
+                    user.CreatedDate,
+                    user.EmailConfirmed,
+                    Roles = roles
+                });
+            }
+
+            return Ok(list);
         }
 
         // ============================
-        // DELETE USER (soft delete)
+        // DELETE USER (SOFT)
         // ============================
 
         [Authorize]
         [HttpDelete("delete-user/{userId}")]
         public async Task<IActionResult> DeleteUserById(string userId)
         {
-            if (string.IsNullOrEmpty(userId))
-                return BadRequest(new { Message = "User ID is required." });
-
             var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var callerRole = User.FindFirstValue(ClaimTypes.Role);
+
             if (callerId != userId && callerRole != "Admin")
                 return Forbid();
 
-            var user = await _userManager.Users
-                .FirstOrDefaultAsync(u => u.Id == userId);
-
+            var user = await _userManager.FindByIdAsync(userId);
             if (user == null)
                 return NotFound(new { Message = "User not found." });
 
@@ -190,16 +192,9 @@ namespace EBookNepal.Controllers
             user.UpdatedDate = DateTime.UtcNow;
 
             var result = await _userManager.UpdateAsync(user);
-
             if (!result.Succeeded)
-            {
-                foreach (var error in result.Errors)
-                    ModelState.AddModelError(string.Empty, error.Description);
+                return BadRequest(result.Errors);
 
-                return BadRequest(ModelState);
-            }
-
-            _logger.LogInformation("User {UserId} soft-deleted.", userId);
             return Ok(new { Message = "User deleted successfully." });
         }
 
@@ -211,14 +206,8 @@ namespace EBookNepal.Controllers
         [HttpPut("change-password/{userId}")]
         public async Task<IActionResult> ChangePassword(
             string userId,
-            [FromBody] ChangePasswordDTO changePasswordDTO)
+            [FromBody] ChangePasswordDTO dto)
         {
-            if (string.IsNullOrEmpty(userId))
-                return BadRequest(new { Message = "User ID is required." });
-
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
             var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (callerId != userId)
                 return Forbid();
@@ -229,23 +218,17 @@ namespace EBookNepal.Controllers
 
             var result = await _userManager.ChangePasswordAsync(
                 user,
-                changePasswordDTO.CurrentPassword,
-                changePasswordDTO.NewPassword);
+                dto.CurrentPassword,
+                dto.NewPassword);
 
             if (!result.Succeeded)
-            {
-                foreach (var error in result.Errors)
-                    ModelState.AddModelError(string.Empty, error.Description);
+                return BadRequest(result.Errors);
 
-                return BadRequest(ModelState);
-            }
-
-            _logger.LogInformation("Password changed for user {UserId}.", userId);
             return Ok(new { Message = "Password changed successfully." });
         }
 
         // ============================
-        // HELPERS
+        // CLOUDINARY HELPER
         // ============================
 
         private static string? ExtractCloudinaryPublicId(string imageUrl)
@@ -260,6 +243,7 @@ namespace EBookNepal.Controllers
 
                 var afterUpload = path[(idx + marker.Length)..];
                 var segments = afterUpload.Split('/');
+
                 var start = segments[0].StartsWith('v') &&
                             segments[0].Length > 1 &&
                             segments[0][1..].All(char.IsDigit) ? 1 : 0;

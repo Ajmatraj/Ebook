@@ -13,28 +13,35 @@ namespace EBookNepal.Services
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly UserManager<User> _userManager;
 
-        public CartServices(ApplicationDbContext context, IHttpContextAccessor httpContextAccessor, UserManager<User> userManager)
+        public CartServices(
+            ApplicationDbContext context,
+            IHttpContextAccessor httpContextAccessor,
+            UserManager<User> userManager)
         {
             _context = context;
             _httpContextAccessor = httpContextAccessor;
             _userManager = userManager;
         }
 
+        // =====================================================
+        // ADD TO CART
+        // =====================================================
         public void AddToCart(string userId, AddToCartDTO cartItem)
         {
-            var book = _context.Books.FirstOrDefault(b => b.BookId == cartItem.BookId);
+            if (string.IsNullOrWhiteSpace(userId))
+                throw new Exception("User ID is required.");
+
+            if (cartItem.Quantity <= 0)
+                throw new Exception("Quantity must be at least 1.");
+
+            var book = _context.Books
+                .FirstOrDefault(b => b.BookId == cartItem.BookId && !b.IsDeleted);
 
             if (book == null)
-            {
                 throw new KeyNotFoundException("Book not found.");
-            }
 
             var existingCartItem = _context.CartItems
                 .FirstOrDefault(c => c.BookId == cartItem.BookId && c.UserId == userId);
-
-            var price = (book.OfferPrice.HasValue && book.OfferStartDate <= DateTime.UtcNow && book.OfferEndDate >= DateTime.UtcNow)
-                ? book.OfferPrice.Value
-                : book.Price;
 
             if (existingCartItem != null)
             {
@@ -44,76 +51,93 @@ namespace EBookNepal.Services
             {
                 var newCartItem = new Cart
                 {
+                    CartItemId = Guid.NewGuid().ToString(),
                     BookId = cartItem.BookId,
                     UserId = userId,
                     Quantity = cartItem.Quantity,
-                    BookPrice = price,
-                    Book = book
+                    AddedDate = DateTime.UtcNow
                 };
+
                 _context.CartItems.Add(newCartItem);
             }
 
             _context.SaveChanges();
         }
 
+        // =====================================================
+        // UPDATE CART ITEM
+        // =====================================================
         public void UpdateCartItem(Cart cartItem)
         {
-            var existingCartItem = _context.CartItems.FirstOrDefault(c => c.CartItemId == cartItem.CartItemId);
+            var existingCartItem = _context.CartItems
+                .FirstOrDefault(c => c.CartItemId == cartItem.CartItemId);
 
             if (existingCartItem == null)
-            {
                 throw new KeyNotFoundException("Cart item not found.");
-            }
+
+            if (cartItem.Quantity <= 0)
+                throw new Exception("Quantity must be at least 1.");
 
             existingCartItem.Quantity = cartItem.Quantity;
             _context.SaveChanges();
         }
 
+        // =====================================================
+        // REMOVE FROM CART
+        // =====================================================
         public void RemoveFromCart(string cartItemId)
         {
-            var cartItem = _context.CartItems.FirstOrDefault(c => c.CartItemId == cartItemId);
+            var cartItem = _context.CartItems
+                .FirstOrDefault(c => c.CartItemId == cartItemId);
 
             if (cartItem == null)
-            {
                 throw new KeyNotFoundException("Cart item not found.");
-            }
 
             _context.CartItems.Remove(cartItem);
             _context.SaveChanges();
         }
 
+        // =====================================================
+        // CLEAR CART
+        // =====================================================
         public void ClearCart(string userId)
         {
-            var cartItems = _context.CartItems.Where(c => c.UserId == userId).ToList();
+            var cartItems = _context.CartItems
+                .Where(c => c.UserId == userId)
+                .ToList();
 
             if (!cartItems.Any())
-            {
                 throw new KeyNotFoundException("No items found in the cart.");
-            }
 
             _context.CartItems.RemoveRange(cartItems);
             _context.SaveChanges();
         }
 
+        // =====================================================
+        // GET TOTAL PRICE
+        // =====================================================
         public decimal GetTotalPrice(string userId)
         {
             var cartItems = _context.CartItems
                 .Include(c => c.Book)
-                .Where(c => c.UserId == userId)
+                .Where(c => c.UserId == userId && !c.Book.IsDeleted)
                 .ToList();
 
-            var totalQuantity = cartItems.Sum(c => c.Quantity);
+            decimal totalPrice = 0;
 
-            var totalPrice = cartItems.Sum(c =>
+            foreach (var c in cartItems)
             {
-                var price = (c.Book.OfferPrice.HasValue && c.Book.OfferStartDate <= DateTime.UtcNow && c.Book.OfferEndDate >= DateTime.UtcNow)
+                var price = (c.Book.OfferPrice.HasValue &&
+                             c.Book.OfferStartDate <= DateTime.UtcNow &&
+                             c.Book.OfferEndDate >= DateTime.UtcNow)
                     ? c.Book.OfferPrice.Value
                     : c.Book.Price;
 
-                return price * c.Quantity;
-            });
+                totalPrice += price * c.Quantity;
+            }
 
-            if (totalQuantity >= 5)
+            // Bulk discount: 5% if total quantity >= 5
+            if (cartItems.Sum(c => c.Quantity) >= 5)
             {
                 totalPrice *= 0.95m;
             }
@@ -121,28 +145,44 @@ namespace EBookNepal.Services
             return totalPrice;
         }
 
+        // =====================================================
+        // GET CART ITEMS
+        // =====================================================
         public IEnumerable<CartDTO> GetCartItemsByUserId(string userId)
         {
             return _context.CartItems
                 .Include(c => c.Book)
                 .AsNoTracking()
-                .Where(c => c.UserId == userId)
+                .Where(c => c.UserId == userId && !c.Book.IsDeleted)
                 .Select(c => new CartDTO
                 {
                     CartItemId = c.CartItemId,
                     BookId = c.BookId,
                     BookTitle = c.Book.Title,
+                    BookAuthor = c.Book.Author,
+                    CoverImagePath = c.Book.CoverImageUrl,
                     Quantity = c.Quantity,
-                    Price = (c.Book.OfferPrice.HasValue && c.Book.OfferStartDate <= DateTime.UtcNow && c.Book.OfferEndDate >= DateTime.UtcNow)
-                        ? c.Book.OfferPrice.Value
-                        : c.Book.Price,
-                    TotalPrice = ((c.Book.OfferPrice.HasValue && c.Book.OfferStartDate <= DateTime.UtcNow && c.Book.OfferEndDate >= DateTime.UtcNow)
-                        ? c.Book.OfferPrice.Value
-                        : c.Book.Price) * c.Quantity
+
+                    UnitPrice = (c.Book.OfferPrice.HasValue &&
+                                 c.Book.OfferStartDate <= DateTime.UtcNow &&
+                                 c.Book.OfferEndDate >= DateTime.UtcNow)
+                                ? c.Book.OfferPrice.Value
+                                : c.Book.Price,
+
+                    TotalPrice = ((c.Book.OfferPrice.HasValue &&
+                                   c.Book.OfferStartDate <= DateTime.UtcNow &&
+                                   c.Book.OfferEndDate >= DateTime.UtcNow)
+                                  ? c.Book.OfferPrice.Value
+                                  : c.Book.Price) * c.Quantity,
+
+                    AddedDate = c.AddedDate
                 })
                 .ToList();
         }
 
+        // =====================================================
+        // GET SINGLE CART ITEM
+        // =====================================================
         public Cart GetCartItemById(string cartItemId)
         {
             var cartItem = _context.CartItems
@@ -150,9 +190,7 @@ namespace EBookNepal.Services
                 .FirstOrDefault(c => c.CartItemId == cartItemId);
 
             if (cartItem == null)
-            {
                 throw new KeyNotFoundException("Cart item not found.");
-            }
 
             return cartItem;
         }

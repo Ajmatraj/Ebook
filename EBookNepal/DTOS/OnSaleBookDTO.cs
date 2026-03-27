@@ -10,9 +10,11 @@ namespace EBookNepal.DTOS
         public string Language { get; set; }
         public string ISBN { get; set; }
         public string Publisher { get; set; }
-        public string PublicationDate { get; set; }
-        public decimal OfferPrice { get; set; } // Offer price
-        public decimal ActualPrice { get; set; } // Original price
+
+        public string? PublicationDate { get; set; }
+
+        public decimal OfferPrice { get; set; }
+        public decimal ActualPrice { get; set; }
         public int Stock { get; set; }
         public string CoverImagePath { get; set; }
     }

@@ -63,7 +63,7 @@ builder.Services.AddScoped<IEmailServices, EmailServices>();
 builder.Services.AddScoped<IFeedbackServices, FeedbackServices>();
 
 // Register ImageServices as a scoped service
-builder.Services.AddScoped<ImageServices>();
+builder.Services.AddScoped<IImageServices, ImageServices>();
 
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("Cloudinary"));
 
@@ -173,15 +173,13 @@ async Task SeedRolesAsync(IServiceProvider serviceProvider)
 {
     var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
 
-    // Define the roles to seed
-    var roles = new[] { "user", "librarian", "admin" };
+    // Correct casing
+    var roles = new[] { "User", "Librarian", "Admin" };
 
     foreach (var role in roles)
     {
-        // Check if the role already exists
         if (!await roleManager.RoleExistsAsync(role))
         {
-            // Create the role if it doesn't exist
             await roleManager.CreateAsync(new IdentityRole(role));
         }
     }
