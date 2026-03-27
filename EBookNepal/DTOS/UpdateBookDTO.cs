@@ -13,6 +13,7 @@ namespace EBookNepal.DTOS
         public string? PublicationDate { get; set; }
         public int Stock { get; set; }
         public decimal Price { get; set; }
+        public decimal? OfferPrice { get; set; }  
         public IFormFile? CoverImage { get; set; }
     }
 }

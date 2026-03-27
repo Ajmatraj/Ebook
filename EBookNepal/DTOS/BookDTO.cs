@@ -17,6 +17,8 @@ namespace EBookNepal.DTOS
 
         public decimal Price { get; set; }
         public decimal? OfferPrice { get; set; }
+        public DateTime? OfferStartDate { get; set; } // ✅ add
+        public DateTime? OfferEndDate { get; set; }   // ✅ add
         public string? CoverImagePath { get; set; }
 
         public string? SellerId { get; set; }

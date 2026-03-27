@@ -18,19 +18,22 @@ namespace EBookNepal.Controllers
         private readonly ILogger<BookController> _logger;
         private readonly ApplicationDbContext _context;
         private readonly UserManager<User> _userManager;
+        private readonly IImageServices _imageService;
 
         public BookController(
             IBookServices bookServices,
             IWebHostEnvironment webHostEnvironment,
             ILogger<BookController> logger,
             ApplicationDbContext context,
-            UserManager<User> userManager)
+            UserManager<User> userManager,
+            IImageServices imageService)
         {
             _bookServices = bookServices;
             _webHostEnvironment = webHostEnvironment;
             _logger = logger;
             _context = context;
             _userManager = userManager;
+            _imageService = imageService; // ✅ was missing
         }
 
         // ======================================================
@@ -156,15 +159,11 @@ namespace EBookNepal.Controllers
 
             if (bookDto.CoverImage != null)
             {
-                var imageService = HttpContext.RequestServices
-                    .GetService(typeof(EBookNepal.Services.ImageServices))
-                        as EBookNepal.Services.ImageServices;
+                var uploadResult = await _imageService.UploadPhotoAsync(bookDto.CoverImage); // ✅ injected service
+                if (uploadResult?.SecureUrl == null)
+                    return BadRequest("Cover image upload failed. Please try again.");
 
-                if (imageService != null)
-                {
-                    var uploadResult = await imageService.UploadPhotoAsync(bookDto.CoverImage);
-                    imageUrl = uploadResult?.SecureUrl?.ToString();
-                }
+                imageUrl = uploadResult.SecureUrl.ToString();
             }
 
             try
@@ -182,7 +181,7 @@ namespace EBookNepal.Controllers
         // ======================================================
         // UPDATE BOOK
         // ======================================================
-        [HttpPost("UpdateBook")]
+        [HttpPatch("UpdateBook")]
         [Authorize]
         public async Task<IActionResult> UpdateBook([FromForm] UpdateBookDTO bookDto)
         {
@@ -193,15 +192,11 @@ namespace EBookNepal.Controllers
 
             if (bookDto.CoverImage != null)
             {
-                var imageService = HttpContext.RequestServices
-                    .GetService(typeof(EBookNepal.Services.ImageServices))
-                        as EBookNepal.Services.ImageServices;
+                var uploadResult = await _imageService.UploadPhotoAsync(bookDto.CoverImage); // ✅ injected service
+                if (uploadResult?.SecureUrl == null)
+                    return BadRequest("Cover image upload failed. Please try again.");
 
-                if (imageService != null)
-                {
-                    var uploadResult = await imageService.UploadPhotoAsync(bookDto.CoverImage);
-                    imageUrl = uploadResult?.SecureUrl?.ToString();
-                }
+                imageUrl = uploadResult.SecureUrl.ToString();
             }
 
             try
@@ -336,7 +331,6 @@ namespace EBookNepal.Controllers
         // OFFERS
         // ======================================================
         [HttpPost("SetOffer")]
-        [Authorize]
         public IActionResult SetOffer([FromBody] SetOfferDTO offerDto)
         {
             if (offerDto == null)

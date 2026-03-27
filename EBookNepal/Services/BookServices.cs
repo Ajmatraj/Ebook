@@ -32,6 +32,12 @@ namespace EBookNepal.Services
             return _userManager.GetUserId(user) ?? throw new Exception("User not authenticated.");
         }
 
+        private bool IsCurrentUserAdmin()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+            return user?.IsInRole("Admin") ?? false;
+        }
+
         // =====================================================
         // DATE HELPER
         // =====================================================
@@ -69,6 +75,9 @@ namespace EBookNepal.Services
                 Publisher = b.Publisher,
                 PublicationDate = b.PublicationDate?.ToString("yyyy-MM-dd"),
                 Price = isOfferActive ? b.OfferPrice!.Value : b.Price,
+                OfferPrice = b.OfferPrice,
+                OfferStartDate = b.OfferStartDate,  // ✅ let frontend decide
+                OfferEndDate = b.OfferEndDate,    // ✅ let frontend decide
                 Stock = b.Stock,
                 CoverImagePath = b.CoverImageUrl,
                 SellerId = b.SellerId,
@@ -81,11 +90,12 @@ namespace EBookNepal.Services
         // =====================================================
         public IEnumerable<BookDTO> GetBooks()
         {
+            // ✅ ToList() first, then map in memory (MapToBookDTO can't be translated to SQL)
             return _context.Books
                 .Include(b => b.Seller)
                 .Where(b => !b.IsDeleted)
-                .Select(b => MapToBookDTO(b))
-                .ToList();
+                .ToList()
+                .Select(MapToBookDTO);
         }
 
         // =====================================================
@@ -96,11 +106,12 @@ namespace EBookNepal.Services
             if (string.IsNullOrWhiteSpace(sellerId))
                 throw new Exception("Seller ID is required.");
 
+            // ✅ ToList() first, then map in memory
             return _context.Books
                 .Include(b => b.Seller)
                 .Where(b => !b.IsDeleted && b.SellerId == sellerId)
-                .Select(b => MapToBookDTO(b))
-                .ToList();
+                .ToList()
+                .Select(MapToBookDTO);
         }
 
         // =====================================================
@@ -156,13 +167,15 @@ namespace EBookNepal.Services
         public void UpdateBook(UpdateBookDTO bookDto, string coverImageUrl)
         {
             var currentUserId = GetCurrentUserId();
+            var isAdmin = IsCurrentUserAdmin();
 
             var book = _context.Books.FirstOrDefault(b => b.BookId == bookDto.BookId);
 
             if (book == null)
                 throw new Exception("Book not found.");
 
-            if (book.SellerId != currentUserId)
+            // ✅ Admins can update any book; sellers can only update their own
+            if (!isAdmin && book.SellerId != currentUserId)
                 throw new Exception("You are not authorized to update this book.");
 
             book.Title = bookDto.Title;
@@ -176,6 +189,10 @@ namespace EBookNepal.Services
             book.Price = bookDto.Price;
             book.PublicationDate = ParseToUtc(bookDto.PublicationDate);
 
+            // ✅ null clears the offer price; only update offer fields if OfferPrice provided
+            book.OfferPrice = bookDto.OfferPrice;
+
+            // ✅ Only update image if a new one was uploaded
             if (!string.IsNullOrWhiteSpace(coverImageUrl))
                 book.CoverImageUrl = coverImageUrl;
 
@@ -191,13 +208,15 @@ namespace EBookNepal.Services
         public void DeleteBook(string bookId)
         {
             var currentUserId = GetCurrentUserId();
+            var isAdmin = IsCurrentUserAdmin();
 
             var book = _context.Books.FirstOrDefault(b => b.BookId == bookId && !b.IsDeleted);
 
             if (book == null)
                 throw new Exception("Book not found.");
 
-            if (book.SellerId != currentUserId)
+            // ✅ Admins can delete any book
+            if (!isAdmin && book.SellerId != currentUserId)
                 throw new Exception("You are not authorized to delete this book.");
 
             book.IsDeleted = true;
@@ -244,6 +263,7 @@ namespace EBookNepal.Services
                     BookId = w.BookId,
                     BookTitle = w.Book.Title,
                     BookAuthor = w.Book.Author,
+                    CoverImagePath= w.Book.CoverImageUrl,
                     AddedDate = w.AddedDate
                 })
                 .ToList();
@@ -316,32 +336,29 @@ namespace EBookNepal.Services
             return _context.CartItems
                 .Include(c => c.Book)
                 .Where(c => c.UserId == userId && !c.Book.IsDeleted)
-                .Select(c => new CartDTO
+                .ToList() // ✅ evaluate in memory for the offer price conditional
+                .Select(c =>
                 {
-                    CartItemId = c.CartItemId,
-                    BookId = c.BookId,
-                    BookTitle = c.Book.Title,
-                    BookAuthor = c.Book.Author,
-                    CoverImagePath = c.Book.CoverImageUrl,
-                    Quantity = c.Quantity,
-
-                    UnitPrice = c.Book.OfferPrice.HasValue &&
-                                c.Book.OfferStartDate <= DateTime.UtcNow &&
-                                c.Book.OfferEndDate >= DateTime.UtcNow
-                                ? c.Book.OfferPrice.Value
-                                : c.Book.Price,
-
-                    TotalPrice = (
+                    var isOfferActive =
                         c.Book.OfferPrice.HasValue &&
                         c.Book.OfferStartDate <= DateTime.UtcNow &&
-                        c.Book.OfferEndDate >= DateTime.UtcNow
-                            ? c.Book.OfferPrice.Value
-                            : c.Book.Price
-                    ) * c.Quantity,
+                        c.Book.OfferEndDate >= DateTime.UtcNow;
 
-                    AddedDate = c.AddedDate
-                })
-                .ToList();
+                    var unitPrice = isOfferActive ? c.Book.OfferPrice!.Value : c.Book.Price;
+
+                    return new CartDTO
+                    {
+                        CartItemId = c.CartItemId,
+                        BookId = c.BookId,
+                        BookTitle = c.Book.Title,
+                        BookAuthor = c.Book.Author,
+                        CoverImagePath = c.Book.CoverImageUrl,
+                        Quantity = c.Quantity,
+                        UnitPrice = unitPrice,
+                        TotalPrice = unitPrice * c.Quantity,
+                        AddedDate = c.AddedDate
+                    };
+                });
         }
 
         public void RemoveFromCart(string cartItemId)
@@ -374,7 +391,6 @@ namespace EBookNepal.Services
             book.OfferPrice = dto.OfferPrice;
             book.OfferStartDate = dto.OfferStartDate.ToUniversalTime();
             book.OfferEndDate = dto.OfferEndDate.ToUniversalTime();
-
             book.UpdatedBy = GetCurrentUserId();
             book.UpdatedDate = DateTime.UtcNow;
 
@@ -396,8 +412,8 @@ namespace EBookNepal.Services
             return _context.Books
                 .Include(b => b.Seller)
                 .Where(b => ids.Contains(b.BookId) && !b.IsDeleted)
-                .Select(b => MapToBookDTO(b))
-                .ToList();
+                .ToList()           // ✅ ToList before mapping
+                .Select(MapToBookDTO);
         }
 
         // =====================================================
@@ -420,12 +436,10 @@ namespace EBookNepal.Services
                     Language = b.Language,
                     ISBN = b.ISBN,
                     Publisher = b.Publisher,
-
                     PublicationDate = b.PublicationDate.HasValue
-                        ? b.PublicationDate.Value.ToString("yyyy-MM-dd")
-                        : null,
-
-                    OfferPrice = b.OfferPrice.Value,
+                                        ? b.PublicationDate.Value.ToString("yyyy-MM-dd")
+                                        : null,
+                    OfferPrice = b.OfferPrice!.Value,
                     ActualPrice = b.Price,
                     Stock = b.Stock,
                     CoverImagePath = b.CoverImageUrl
