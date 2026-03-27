@@ -16,7 +16,11 @@ namespace EBookNepal.Controllers
         private readonly ILogger<LibrarianController> _logger;
         private readonly ApplicationDbContext _context;
 
-        public LibrarianController(IBookServices bookServices, IWebHostEnvironment webHostEnvironment, ILogger<LibrarianController> logger, ApplicationDbContext context)
+        public LibrarianController(
+            IBookServices bookServices,
+            IWebHostEnvironment webHostEnvironment,
+            ILogger<LibrarianController> logger,
+            ApplicationDbContext context)
         {
             _bookServices = bookServices;
             _webHostEnvironment = webHostEnvironment;
@@ -24,6 +28,9 @@ namespace EBookNepal.Controllers
             _context = context;
         }
 
+        // ============================================================
+        // GET BOOKS
+        // ============================================================
         [HttpGet("GetBooks")]
         public IEnumerable<BookDTO> GetBooks()
         {
@@ -48,68 +55,96 @@ namespace EBookNepal.Controllers
             }).ToList();
         }
 
+        // ============================================================
+        // UPDATE ORDER STATUS
+        // ============================================================
         [HttpPut("UpdateOrderStatus")]
-        public IActionResult UpdateOrderStatus([FromBody] UpdateOrderStatusDTO updateOrderStatusDTO)
+        public IActionResult UpdateOrderStatus([FromBody] UpdateOrderStatusDTO dto)
         {
             try
             {
-                if (updateOrderStatusDTO == null || string.IsNullOrEmpty(updateOrderStatusDTO.OrderId) || string.IsNullOrEmpty(updateOrderStatusDTO.ClaimCode))
+                if (dto == null)
                 {
-                    return BadRequest("Order ID, claim code, and status details are required.");
+                    return BadRequest(new { message = "Request body is missing." });
+                }
+
+                if (string.IsNullOrWhiteSpace(dto.OrderId) ||
+                    string.IsNullOrWhiteSpace(dto.ClaimCode))
+                {
+                    return BadRequest(new { message = "OrderId and ClaimCode are required." });
                 }
 
                 var order = _context.Orders
-                    .Include(o => o.OrderItems) // Include related OrderItems
-                    .FirstOrDefault(o => o.OrderId == updateOrderStatusDTO.OrderId);
+                    .Include(o => o.OrderItems)
+                    .FirstOrDefault(o => o.OrderId == dto.OrderId);
 
                 if (order == null)
                 {
-                    return NotFound("Order not found.");
+                    return NotFound(new { message = "Order not found." });
                 }
 
-                // Validate the claim code
-                if (!string.Equals(order.ClaimCode, updateOrderStatusDTO.ClaimCode, StringComparison.OrdinalIgnoreCase))
+                // ================= CLAIM CODE CHECK =================
+                if (!string.Equals(
+                        order.ClaimCode?.Trim(),
+                        dto.ClaimCode?.Trim(),
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    return BadRequest("Invalid claim code.");
+                    _logger.LogWarning(
+                        $"Invalid claim code. DB: '{order.ClaimCode}', Incoming: '{dto.ClaimCode}'");
+
+                    return BadRequest(new { message = "Invalid claim code." });
                 }
 
-                // Update the order status
-                order.OrderStatus = updateOrderStatusDTO.OrderStatus;
+                // ================= UPDATE STATUS =================
+                order.OrderStatus = dto.OrderStatus;
 
-                // If the order status is updated to 'Completed', decrease the stock
-                if (updateOrderStatusDTO.OrderStatus == OrderStatus.Completed)
+                // ================= STOCK DEDUCTION =================
+                if (dto.OrderStatus == OrderStatus.Completed)
                 {
-                    foreach (var orderItem in order.OrderItems)
+                    var bookIds = order.OrderItems.Select(i => i.BookId).ToList();
+
+                    var books = _context.Books
+                        .Where(b => bookIds.Contains(b.BookId))
+                        .ToDictionary(b => b.BookId);
+
+                    foreach (var item in order.OrderItems)
                     {
-                        var book = _context.Books.FirstOrDefault(b => b.BookId == orderItem.BookId);
-                        if (book == null)
+                        if (!books.TryGetValue(item.BookId, out var book))
                         {
-                            return BadRequest($"Book with ID {orderItem.BookId} not found.");
+                            return BadRequest(new { message = $"Book not found for ID {item.BookId}" });
                         }
 
-                        // Decrease the stock
-                        if (book.Stock < orderItem.Quantity)
+                        if (book.Stock < item.Quantity)
                         {
-                            return BadRequest($"Insufficient stock for book '{book.Title}'.");
+                            return BadRequest(new
+                            {
+                                message = $"Insufficient stock for '{book.Title}'."
+                            });
                         }
 
-                        book.Stock -= orderItem.Quantity;
-                        _context.Books.Update(book);
+                        book.Stock -= item.Quantity;
                     }
                 }
 
-                _context.Orders.Update(order);
                 _context.SaveChanges();
 
-                return Ok("Order status updated successfully.");
+                return Ok(new
+                {
+                    message = "Order status updated successfully.",
+                    orderId = order.OrderId,
+                    newStatus = order.OrderStatus.ToString()
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error updating order status: {ex.Message}");
-                return BadRequest("An error occurred while updating the order status.");
+                _logger.LogError(ex, "Error updating order status");
+                return StatusCode(500, new { message = "An unexpected error occurred." });
             }
         }
 
+        // ============================================================
+        // GET ORDERS (FIXED - NOW RETURNS CLAIM CODE)
+        // ============================================================
         [HttpGet("GetOrders")]
         public IActionResult GetOrders()
         {
@@ -119,45 +154,44 @@ namespace EBookNepal.Controllers
                     .Include(o => o.OrderItems)
                     .Select(order => new
                     {
-                        OrderId = order.OrderId,
-                        UserId = order.UserId,
-                        TotalAmount = order.TotalAmount,
-                        CheckedOutTime = order.CheckedOutTime,
-                        OrderStatus = order.OrderStatus,
+                        order.OrderId,
+                        order.UserId,
+                        order.TotalAmount,
+                        order.CheckedOutTime,
+                        order.OrderStatus,
+                        order.ClaimCode,   // 🔥 THIS FIXES YOUR ERROR SOURCE
                         OrderItems = order.OrderItems.Select(item => new
                         {
-                            OrderItemId = item.OrderItemId,
-                            BookId = item.BookId,
-                            BookTitle = item.BookTitle,
-                            BookPrice = item.BookPrice,
-                            Quantity = item.Quantity,
-                            TotalPrice = item.TotalPrice
+                            item.OrderItemId,
+                            item.BookId,
+                            item.BookTitle,
+                            item.BookPrice,
+                            item.Quantity,
+                            item.TotalPrice
                         }).ToList()
                     })
                     .ToList();
-
-                if (!orders.Any())
-                {
-                    return NotFound("No orders found.");
-                }
 
                 return Ok(orders);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error retrieving orders: {ex.Message}");
-                return StatusCode(500, "An error occurred while retrieving the orders.");
+                _logger.LogError(ex, "Error retrieving orders");
+                return StatusCode(500, new { message = "Failed to retrieve orders." });
             }
         }
 
+        // ============================================================
+        // GET BOOK REVIEWS
+        // ============================================================
         [HttpGet("GetBookReviews")]
         public IActionResult GetBookReviews([FromQuery] string bookId)
         {
             try
             {
-                if (string.IsNullOrEmpty(bookId))
+                if (string.IsNullOrWhiteSpace(bookId))
                 {
-                    return BadRequest("Book ID is required.");
+                    return BadRequest(new { message = "Book ID is required." });
                 }
 
                 var reviews = _context.BookReviews
@@ -172,17 +206,12 @@ namespace EBookNepal.Controllers
                     })
                     .ToList();
 
-                if (!reviews.Any())
-                {
-                    return NotFound("No reviews found for this book.");
-                }
-
                 return Ok(reviews);
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error retrieving reviews: {ex.Message}");
-                return StatusCode(500, "An error occurred while retrieving reviews.");
+                _logger.LogError(ex, "Error retrieving reviews");
+                return StatusCode(500, new { message = "Failed to retrieve reviews." });
             }
         }
     }
