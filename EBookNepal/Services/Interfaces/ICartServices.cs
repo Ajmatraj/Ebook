@@ -6,7 +6,7 @@ namespace EBookNepal.Services.Interfaces
     public interface ICartServices
     {
         void AddToCart(string userId, AddToCartDTO cartItem);
-        void UpdateCartItem(Cart cartItem);
+        void UpdateCartItem(UpdateCartDTO cartItem);
         void RemoveFromCart(string cartItemId);
         void ClearCart(string userId);
         decimal GetTotalPrice(string userId);

@@ -159,7 +159,7 @@ namespace EBookNepal.Controllers
                         order.TotalAmount,
                         order.CheckedOutTime,
                         order.OrderStatus,
-                        order.ClaimCode,   // 🔥 THIS FIXES YOUR ERROR SOURCE
+                        order.ClaimCode,   
                         OrderItems = order.OrderItems.Select(item => new
                         {
                             item.OrderItemId,

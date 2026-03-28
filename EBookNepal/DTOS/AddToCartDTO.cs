@@ -4,5 +4,6 @@ namespace EBookNepal.DTOS
     {
         public string BookId { get; set; }
         public int Quantity { get; set; }
+        public string? SellerId { get; set; }
     }
 }

@@ -12,6 +12,7 @@ namespace EBookNepal.DTOS
         public int Quantity { get; set; }
 
         public decimal UnitPrice { get; set; }
+        public string? SellerId { get; set; }
         public decimal TotalPrice { get; set; }
 
         public DateTime AddedDate { get; set; }

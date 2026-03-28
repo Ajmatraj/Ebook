@@ -30,6 +30,58 @@ namespace EBookNepal.Controllers
             _emailService = emailService;
         }
 
+        [HttpGet("GetOrdersBySeller/{sellerId}")]
+        public IActionResult GetOrdersBySeller(string sellerId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(sellerId))
+                    return BadRequest("Seller ID is required.");
+
+                var orders = _context.OrderItems
+                    .Include(oi => oi.Order)
+                    .Where(oi => oi.SellerId == sellerId)
+                    .Select(oi => new
+                    {
+                        oi.Order.OrderId,
+                        oi.Order.TotalAmount,
+                        oi.Order.CheckedOutTime,
+                        oi.Order.OrderStatus,
+                        OrderItem = new
+                        {
+                            oi.OrderItemId,
+                            oi.BookId,
+                            oi.BookTitle,
+                            oi.BookPrice,
+                            oi.Quantity,
+                            oi.TotalPrice,
+                            oi.SellerId
+                        }
+                    })
+                    .ToList()
+                    .GroupBy(x => x.OrderId)
+                    .Select(g => new
+                    {
+                        OrderId = g.Key,
+                        TotalAmount = g.First().TotalAmount,
+                        CheckedOutTime = g.First().CheckedOutTime,
+                        OrderStatus = g.First().OrderStatus,
+                        OrderItems = g.Select(x => x.OrderItem).ToList()
+                    })
+                    .ToList();
+
+                if (!orders.Any())
+                    return NotFound("No orders found for the specified seller.");
+
+                return Ok(orders);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error retrieving orders for seller {sellerId}: {ex.Message}");
+                return StatusCode(500, "An error occurred while retrieving the orders.");
+            }
+        }
+
         [HttpGet("GetBooks")]
         public IEnumerable<Book> GetBooks()
         {
@@ -98,17 +150,14 @@ namespace EBookNepal.Controllers
         }
 
         [HttpPut("UpdateCartItem")]
-        public IActionResult UpdateCartItem([FromBody] Cart cartItem)
+        public IActionResult UpdateCartItem([FromBody] UpdateCartDTO dto)
         {
+            if (dto == null)
+                return BadRequest("Cart item data is null.");
+
             try
             {
-                if (cartItem == null)
-                {
-                    return BadRequest("Cart item data is null.");
-                }
-
-                _cartService.UpdateCartItem(cartItem);
-
+                _cartService.UpdateCartItem(dto);
                 return Ok("Cart item updated successfully.");
             }
             catch (Exception ex)
@@ -173,41 +222,39 @@ namespace EBookNepal.Controllers
                     return NotFound("No items found in the cart.");
                 }
 
-                // Check if the user has 10 successful orders
+                // ==============================
+                // CHECK PREVIOUS COMPLETED ORDERS
+                // ==============================
                 var successfulOrdersCount = _context.Orders
-                    .Where(o => o.UserId == userId && o.OrderStatus == OrderStatus.Completed) // Assuming 1 = Successful
+                    .Where(o => o.UserId == userId && o.OrderStatus == OrderStatus.Completed)
                     .Count();
 
-                bool applyExtraDiscount = (successfulOrdersCount + 1) % 11 == 0; // Apply extra discount on every 11th order
+                bool applyExtraDiscount = (successfulOrdersCount + 1) % 11 == 0;
 
-                // Calculate total amount with discount logic
                 decimal totalAmount = 0;
+
+                // ==============================
+                // VALIDATE STOCK FIRST
+                // ==============================
                 foreach (var cartItem in cartItems)
                 {
-                    decimal itemPrice = cartItem.UnitPrice;
-                    if (cartItem.Quantity > 5)
-                    {
-                        // Apply 5% discount for quantity > 5
-                        itemPrice *= 0.95m;
-                    }
-                    totalAmount += itemPrice * cartItem.Quantity;
+                    var book = _context.Books.FirstOrDefault(b => b.BookId == cartItem.BookId);
+                    if (book == null)
+                        return BadRequest($"Book not found: {cartItem.BookId}");
+
+                    if (book.Stock < cartItem.Quantity)
+                        return BadRequest($"Not enough stock for {book.Title}");
                 }
 
-                // Apply extra 10% discount if eligible
-                if (applyExtraDiscount)
-                {
-                    totalAmount *= 0.90m; // Apply 10% discount
-                }
-
-                // Generate a claim code
+                // ==============================
+                // CREATE ORDER
+                // ==============================
                 var claimCode = Guid.NewGuid().ToString();
 
-                // Create a new order
                 var order = new Order
                 {
                     OrderId = Guid.NewGuid().ToString(),
                     UserId = userId,
-                    TotalAmount = totalAmount,
                     CheckedOutTime = DateTime.UtcNow,
                     OrderStatus = OrderStatus.Pending,
                     ClaimCode = claimCode
@@ -215,28 +262,31 @@ namespace EBookNepal.Controllers
 
                 _context.Orders.Add(order);
 
-                // Add order items
+                // ==============================
+                // PROCESS ITEMS + DEDUCT STOCK
+                // ==============================
                 foreach (var cartItem in cartItems)
                 {
                     var book = _context.Books.FirstOrDefault(b => b.BookId == cartItem.BookId);
-                    if (book == null)
-                    {
-                        return BadRequest($"Book with ID {cartItem.BookId} not found.");
-                    }
 
                     decimal itemPrice = cartItem.UnitPrice;
+
                     if (cartItem.Quantity > 5)
-                    {
-                        // Apply 5% discount for quantity > 5
                         itemPrice *= 0.95m;
-                    }
+
+                    totalAmount += itemPrice * cartItem.Quantity;
+
+                    // Deduct inventory
+                    book.Stock -= cartItem.Quantity;
 
                     var orderItem = new OrderItem
                     {
+                        OrderItemId = Guid.NewGuid().ToString(),
                         OrderId = order.OrderId,
                         BookId = cartItem.BookId,
+                        SellerId = book.SellerId,
                         BookTitle = book.Title,
-                        BookPrice = itemPrice, // Discounted price
+                        BookPrice = itemPrice,
                         Quantity = cartItem.Quantity,
                         TotalPrice = itemPrice * cartItem.Quantity
                     };
@@ -244,55 +294,62 @@ namespace EBookNepal.Controllers
                     _context.OrderItems.Add(orderItem);
                 }
 
-                // Clear the cart
-                _cartService.ClearCart(userId);
-
-                // Save changes to the database
-                _context.SaveChanges();
-
-                // Send email with order details and claim code
-                var userEmail = _context.Users.FirstOrDefault(u => u.Id == userId)?.Email;
-                if (string.IsNullOrEmpty(userEmail))
+                // ==============================
+                // APPLY LOYALTY DISCOUNT
+                // ==============================
+                if (applyExtraDiscount)
                 {
-                    return BadRequest("User email not found.");
+                    totalAmount *= 0.90m;
                 }
 
+                order.TotalAmount = totalAmount;
+
+                // ==============================
+                // SAVE ORDER + STOCK
+                // ==============================
+                _context.SaveChanges();
+
+                // ==============================
+                // CLEAR CART AFTER SUCCESS
+                // ==============================
+                _cartService.ClearCart(userId);
+
+                // ==============================
+                // SEND EMAIL
+                // ==============================
+                var userEmail = _context.Users.FirstOrDefault(u => u.Id == userId)?.Email;
+                if (string.IsNullOrEmpty(userEmail))
+                    return BadRequest("User email not found.");
+
                 var emailSubject = "Order Confirmation - EBookNepal";
-                var emailBody = $"Dear User,\n\nThank you for your order. Here are the details:\n\n" +
+
+                var emailBody = $"Dear User,\n\n" +
+                                $"Thank you for your order.\n\n" +
                                 $"Order ID: {order.OrderId}\n" +
-                                $"Total Amount: {totalAmount:C}\n" +
-                                $"Checked Out Time: {order.CheckedOutTime}\n" +
-                                $"Claim Code: {claimCode}\n\n" +
-                                $"Order Items:\n";
+                                $"Claim Code: {claimCode}\n" +
+                                $"Total Amount: {totalAmount:C}\n\n" +
+                                $"Items:\n";
 
                 foreach (var cartItem in cartItems)
                 {
-                    decimal itemPrice = cartItem.UnitPrice;
-                    if (cartItem.Quantity > 5)
-                    {
-                        itemPrice *= 0.95m;
-                    }
-
-                    emailBody += $"- {cartItem.Quantity} x {cartItem.BookTitle} @ {itemPrice:C} each\n";
+                    emailBody += $"- {cartItem.Quantity} x {cartItem.BookTitle}\n";
                 }
-
-                emailBody += $"\nTotal: {totalAmount:C}\n\n";
 
                 if (applyExtraDiscount)
                 {
-                    emailBody += "Congratulations! You received an extra 10% discount for completing 10 successful orders.\n\n";
+                    emailBody += "\nYou received a 10% loyalty discount.\n";
                 }
 
-                emailBody += "Please keep this email for your records. Use the claim code to verify your order.\n\n" +
-                            "Thank you,\nEBookNepal Team";
+                emailBody += "\nThank you for shopping with EBookNepal.";
 
                 await _emailService.SendEmailAsync(userEmail, emailSubject, emailBody);
 
-                return Ok("Checkout completed successfully. Orders have been created, and an email has been sent.");
+                return Ok("Checkout completed successfully.");
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                _logger.LogError($"Checkout failed: {ex.Message}");
+                return StatusCode(500, "An error occurred during checkout.");
             }
         }
 

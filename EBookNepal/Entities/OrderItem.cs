@@ -14,6 +14,9 @@ namespace EBookNepal.Entities
         [Required]
         public string BookId { get; set; }
 
+        [Required]
+        public string SellerId { get; set; }
+
         public string BookTitle { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
@@ -32,5 +35,8 @@ namespace EBookNepal.Entities
 
         [ForeignKey("BookId")]
         public virtual Book Book { get; set; }
+
+        [ForeignKey("SellerId")]
+        public virtual User? Seller { get; set; }
     }
 }

@@ -98,6 +98,15 @@ namespace EBookNepal.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             // ========================
+            // ORDER ITEM → SELLER (USER)
+            // ========================
+            modelBuilder.Entity<OrderItem>()
+                .HasOne<User>()
+                .WithMany()
+                .HasForeignKey("SellerId")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ========================
             // BOOK → REVIEWS
             // ========================
             modelBuilder.Entity<BookReview>()

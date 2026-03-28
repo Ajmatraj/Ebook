@@ -405,5 +405,42 @@ namespace EBookNepal.Controllers
 
             return Ok("Review added successfully.");
         }
+
+        //get review by book id
+        [HttpGet("GetReviewsByBook")]
+        public IActionResult GetReviewsByBook([FromQuery] string bookId)
+        {
+            if (string.IsNullOrWhiteSpace(bookId))
+                return BadRequest("Book ID is required.");
+
+            try
+            {
+                var reviews = _context.BookReviews
+                    .Include(r => r.User)
+                    .Where(r => r.BookId == bookId)
+                    .Select(r => new
+                    {
+                        r.ReviewId,
+                        r.BookId,
+                        r.UserId,
+                        UserName = r.User.Name,
+                        r.ReviewText,
+                        r.Rating,
+                        r.CreatedAt
+                    })
+                    .ToList();
+
+                if (!reviews.Any())
+                    return NotFound("No reviews found for the specified book.");
+
+                return Ok(reviews);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving reviews for book {BookId}", bookId);
+                return BadRequest(ex.Message);
+            }
+        }
+
     }
 }

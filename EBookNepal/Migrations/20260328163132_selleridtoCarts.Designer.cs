@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace EBookNepal.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260327181242_FixBookDateTimeColumns")]
-    partial class FixBookDateTimeColumns
+    [Migration("20260328163132_selleridtoCarts")]
+    partial class selleridtoCarts
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -181,6 +181,10 @@ namespace EBookNepal.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
 
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("UserId")
                         .IsRequired()
                         .HasColumnType("text");
@@ -188,6 +192,8 @@ namespace EBookNepal.Migrations
                     b.HasKey("CartItemId");
 
                     b.HasIndex("BookId");
+
+                    b.HasIndex("SellerId");
 
                     b.HasIndex("UserId");
 
@@ -309,6 +315,13 @@ namespace EBookNepal.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
 
+                    b.Property<string>("SellerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SellerId1")
+                        .HasColumnType("text");
+
                     b.Property<decimal>("TotalPrice")
                         .HasColumnType("decimal(18,2)");
 
@@ -317,6 +330,10 @@ namespace EBookNepal.Migrations
                     b.HasIndex("BookId");
 
                     b.HasIndex("OrderId");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("SellerId1");
 
                     b.ToTable("OrderItems");
                 });
@@ -613,6 +630,12 @@ namespace EBookNepal.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("EBookNepal.Entities.User", "Seller")
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.HasOne("EBookNepal.Entities.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -620,6 +643,8 @@ namespace EBookNepal.Migrations
                         .IsRequired();
 
                     b.Navigation("Book");
+
+                    b.Navigation("Seller");
 
                     b.Navigation("User");
                 });
@@ -660,9 +685,21 @@ namespace EBookNepal.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("EBookNepal.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("EBookNepal.Entities.User", "Seller")
+                        .WithMany()
+                        .HasForeignKey("SellerId1");
+
                     b.Navigation("Book");
 
                     b.Navigation("Order");
+
+                    b.Navigation("Seller");
                 });
 
             modelBuilder.Entity("EBookNepal.Entities.Wishlist", b =>

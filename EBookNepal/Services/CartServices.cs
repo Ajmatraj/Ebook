@@ -55,7 +55,13 @@ namespace EBookNepal.Services
                     BookId = cartItem.BookId,
                     UserId = userId,
                     Quantity = cartItem.Quantity,
-                    AddedDate = DateTime.UtcNow
+                    AddedDate = DateTime.UtcNow,
+                    SellerId = book.SellerId,
+                    BookPrice = (book.OfferPrice.HasValue &&
+                                 book.OfferStartDate <= DateTime.UtcNow &&
+                                 book.OfferEndDate >= DateTime.UtcNow)
+                                ? book.OfferPrice.Value
+                                : book.Price
                 };
 
                 _context.CartItems.Add(newCartItem);
@@ -67,18 +73,18 @@ namespace EBookNepal.Services
         // =====================================================
         // UPDATE CART ITEM
         // =====================================================
-        public void UpdateCartItem(Cart cartItem)
+        public void UpdateCartItem(UpdateCartDTO dto)
         {
             var existingCartItem = _context.CartItems
-                .FirstOrDefault(c => c.CartItemId == cartItem.CartItemId);
+                .FirstOrDefault(c => c.CartItemId == dto.CartItemId);
 
             if (existingCartItem == null)
                 throw new KeyNotFoundException("Cart item not found.");
 
-            if (cartItem.Quantity <= 0)
+            if (dto.Quantity <= 0)
                 throw new Exception("Quantity must be at least 1.");
 
-            existingCartItem.Quantity = cartItem.Quantity;
+            existingCartItem.Quantity = dto.Quantity;
             _context.SaveChanges();
         }
 
@@ -163,11 +169,8 @@ namespace EBookNepal.Services
                     CoverImagePath = c.Book.CoverImageUrl,
                     Quantity = c.Quantity,
 
-                    UnitPrice = (c.Book.OfferPrice.HasValue &&
-                                 c.Book.OfferStartDate <= DateTime.UtcNow &&
-                                 c.Book.OfferEndDate >= DateTime.UtcNow)
-                                ? c.Book.OfferPrice.Value
-                                : c.Book.Price,
+                    UnitPrice = c.BookPrice,
+                    SellerId = c.SellerId,
 
                     TotalPrice = ((c.Book.OfferPrice.HasValue &&
                                    c.Book.OfferStartDate <= DateTime.UtcNow &&

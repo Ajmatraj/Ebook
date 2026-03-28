@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace EBookNepal.Migrations
 {
     /// <inheritdoc />
-    public partial class usertable : Migration
+    public partial class selleridtoCarts : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -319,12 +319,19 @@ namespace EBookNepal.Migrations
                     BookId = table.Column<string>(type: "text", nullable: false),
                     UserId = table.Column<string>(type: "text", nullable: false),
                     Quantity = table.Column<int>(type: "integer", nullable: false),
+                    SellerId = table.Column<string>(type: "text", nullable: false),
                     BookPrice = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
                     AddedDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_CartItems", x => x.CartItemId);
+                    table.ForeignKey(
+                        name: "FK_CartItems_AspNetUsers_SellerId",
+                        column: x => x.SellerId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "FK_CartItems_AspNetUsers_UserId",
                         column: x => x.UserId,
@@ -372,14 +379,27 @@ namespace EBookNepal.Migrations
                     OrderItemId = table.Column<string>(type: "text", nullable: false),
                     OrderId = table.Column<string>(type: "text", nullable: false),
                     BookId = table.Column<string>(type: "text", nullable: false),
+                    SellerId = table.Column<string>(type: "text", nullable: false),
                     BookTitle = table.Column<string>(type: "text", nullable: false),
                     BookPrice = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
                     Quantity = table.Column<int>(type: "integer", nullable: false),
-                    TotalPrice = table.Column<decimal>(type: "numeric(18,2)", nullable: false)
+                    TotalPrice = table.Column<decimal>(type: "numeric(18,2)", nullable: false),
+                    SellerId1 = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_OrderItems", x => x.OrderItemId);
+                    table.ForeignKey(
+                        name: "FK_OrderItems_AspNetUsers_SellerId",
+                        column: x => x.SellerId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_OrderItems_AspNetUsers_SellerId1",
+                        column: x => x.SellerId1,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_OrderItems_Books_BookId",
                         column: x => x.BookId,
@@ -452,6 +472,11 @@ namespace EBookNepal.Migrations
                 column: "BookId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_CartItems_SellerId",
+                table: "CartItems",
+                column: "SellerId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_CartItems_UserId",
                 table: "CartItems",
                 column: "UserId");
@@ -470,6 +495,16 @@ namespace EBookNepal.Migrations
                 name: "IX_OrderItems_OrderId",
                 table: "OrderItems",
                 column: "OrderId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrderItems_SellerId",
+                table: "OrderItems",
+                column: "SellerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_OrderItems_SellerId1",
+                table: "OrderItems",
+                column: "SellerId1");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Orders_UserId",
